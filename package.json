@@ -1,7 +1,7 @@
 {
   "name": "@hyeonwoo/js-tree",
   "description": "JavaScript Tree Library",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "homepage": "https://github.com/hyeon-wooo/js-tree#readme",
   "repository": {
     "type": "git",
@@ -17,7 +17,7 @@
   ],
   "main": "src/index.js",
   "scripts": {
-    "test": "echo \"Test Script Executed.\"",
+    "test": "echo \"Test Script Executed!\"",
     "publish": "npm publish --access=public",
     "publish:patch": "npm version patch && git push origin --tags",
     "publish:minor": "npm version patch && git push origin --tags",
