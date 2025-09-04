@@ -1,0 +1,27 @@
+{
+  "name": "@hyeonwoo/js-tree",
+  "description": "JavaScript Tree Library",
+  "version": "0.1.0",
+  "homepage": "https://github.com/hyeon-wooo/js-tree#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hyeon-wooo/js-tree.git"
+  },
+  "deprecated": false,
+  "keywords": [
+    "javascript",
+    "tree",
+    "javascript tree",
+    "bst",
+    "binary search tree"
+  ],
+  "main": "src/index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": {
+    "name": "Hyeonwoo Kim",
+    "url": "https://github.com/hyeon-wooo"
+  },
+  "license": "MIT"
+}
