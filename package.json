@@ -19,9 +19,9 @@
   "scripts": {
     "test": "echo \"Test Script Executed.\"",
     "publish": "npm publish --access=public",
-    "publish:patch": "npm version patch && git push origin main && git push origin --tags",
-    "publish:minor": "npm version patch && git push origin main && git push origin --tags",
-    "publish:major": "npm version patch && git push origin main && git push origin --tags"
+    "publish:patch": "npm version patch && git push origin --tags",
+    "publish:minor": "npm version patch && git push origin --tags",
+    "publish:major": "npm version patch && git push origin --tags"
   },
   "author": {
     "name": "Hyeonwoo Kim",
