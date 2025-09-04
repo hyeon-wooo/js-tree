@@ -1,5 +1,9 @@
 name: Publish Package
 
+concurrency:
+  group: npm-publish
+  cancel-in-progress: true
+
 on:
   push:
     tags:
