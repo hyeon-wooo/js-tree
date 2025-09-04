@@ -58,7 +58,7 @@ export class BSTree<TData = any> {
    */
   traverse: (
     orderWay: TBSTreeTraverseOrderWay,
-    cb?: (node) => void
+    cb?: (node: BSTreeNode<TData>) => void
   ) => BSTreeNode<TData>[];
 
   /** search a node by key
