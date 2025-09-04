@@ -5,9 +5,9 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # push:
-  #   tags:
-  #     - "v*"
+  push:
+    tags:
+      - "v*"
 
 jobs:
   build-and-publish:
