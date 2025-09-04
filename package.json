@@ -20,8 +20,8 @@
     "test": "echo \"Test Script Executed!\"",
     "publish": "npm publish --access=public",
     "publish:patch": "npm version patch && git push origin main --tags",
-    "publish:minor": "npm version patch && git push origin main --tags",
-    "publish:major": "npm version patch && git push origin main --tags"
+    "publish:minor": "npm version minor && git push origin main --tags",
+    "publish:major": "npm version major && git push origin main --tags"
   },
   "author": {
     "name": "Hyeonwoo Kim",
