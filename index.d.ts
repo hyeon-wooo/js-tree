@@ -21,13 +21,6 @@ declare module "@hyeonwoo/js-tree" {
     right: BSTreeNode<T> | null;
     data: T | null;
 
-    constructor(key: number, data?: T) {
-      this.key = key;
-      this.left = null;
-      this.right = null;
-      this.data = data ?? null;
-    }
-
     /** use internally when insert a new node */
     redirect(newKey: number): {
       node: BSTreeNode<T>;
