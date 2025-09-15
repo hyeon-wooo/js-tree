@@ -2,6 +2,11 @@
 
 A Library for Tree data structure.
 
+## Features
+
+- Iterative traversals (no recursion) for better stack safety and performance
+- Supports Binary Search Tree (BST) and B-Tree
+
 ## Installation
 
 ```bash
@@ -54,4 +59,35 @@ tree.traverse("post");
 tree.deleteByKey(3);
 
 tree.deleteByKey(2, { cascade: true }); // it will delete 2 and its chilren: 3.
+```
+
+# BTree (Balanced Tree)
+
+## usage
+
+```javascript
+const { BTree } = require("@hyeonwoo/js-tree");
+
+// if you using TypeScript
+import { BTree } from "@hyeonwoo/js-tree";
+
+const tree = new BTree();
+
+tree.insert(3, "any custom data (optional)");
+
+tree.search(3);
+
+tree.traverse("pre", (node) => console.log(node));
+
+const inOrderedKeyList = tree.traverse("in");
+console.log(inorderedKeyList); // [1, 2, 3]
+
+const outOrderedKeyList = tree.traverse("out");
+console.log(inorderedKeyList); // [3, 2, 1]
+
+tree.traverse("post");
+
+tree.deleteByKey(3);
+
+tree.toPng({ dir: "directory_to_save_png", fileName: "png_file_name" });
 ```

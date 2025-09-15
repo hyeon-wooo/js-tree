@@ -74,4 +74,84 @@ declare module "@hyeonwoo/js-tree" {
      */
     deleteByKey: (key: number, options?: { cascade?: boolean }) => boolean;
   }
+
+  /** the order way to traverse the B-Tree
+   * @pre pre-order
+   * @in in-order (asc)
+   * @out in-order (desc)
+   * @post post-order
+   */
+  export type TBTreeTraverseOrderWay = TBSTreeTraverseOrderWay;
+
+  export class BTreeNode<T = any> {
+    key: number;
+    data: T | null;
+  }
+
+  export class BTreeNodeGroup<T = any> {
+    m: number;
+    nodes: BTreeNode<T>[];
+    children: Array<BTreeNodeGroup<T> | null>;
+    parent: BTreeNodeGroup<T> | null;
+    /** index of this group in its parent's children */
+    idx: number | null;
+    isLeaf: boolean;
+
+    // internal helpers
+    searchLeaf: (
+      key: number
+    ) =>
+      | { nodeGroup: BTreeNodeGroup<T> }
+      | { nextNodeGroup: BTreeNodeGroup<T> | null; idx: number };
+
+    search: (
+      key: number
+    ) =>
+      | { node: BTreeNode<T> | null }
+      | { nextNodeGroup: BTreeNodeGroup<T> | null };
+
+    findMidian: () => { key: number; index: number } | null;
+    insertNode: (node: BTreeNode<T>) => number;
+    setChild: (idx: number, child: BTreeNodeGroup<T> | null) => void;
+  }
+
+  export class BTree<TData = any> {
+    m: number;
+    rootGroup: BTreeNodeGroup<TData> | null;
+
+    insert: (key: number, data?: TData) => boolean;
+
+    /** traverse B-Tree
+     * @returns array of keys in the specified order
+     */
+    traverse: (
+      orderWay: TBTreeTraverseOrderWay,
+      cb?: (node: BTreeNode<TData>) => void
+    ) => number[];
+
+    /** search by key */
+    search: (key: number) => BTreeNode<TData> | null;
+
+    /** delete by key
+     * @returns success whether the key was found and deleted
+     */
+    deleteByKey: (key: number) => boolean;
+
+    /** emit Graphviz DOT and write to file
+     * @param options.dir target directory (default: process.cwd())
+     * @param options.fileName file name without extension (default: "tree")
+     */
+    toDot: (options?: { dir?: string; fileName?: string }) => {
+      dotFileContent: string;
+      dotFilePath: string;
+    };
+
+    /** generate PNG via Graphviz
+     * @param options.dir target directory (default: process.cwd())
+     * @param options.fileName file name without extension (default: "tree")
+     */
+    toPng: (options?: { dir?: string; fileName?: string }) => {
+      pngFilePath: string;
+    };
+  }
 }
