@@ -112,6 +112,281 @@ class BTree {
     this.rootGroup = null;
   }
 
+  // 노드 그룹의 children 길이와 parent/idx를 정합성 있게 맞춤
+  _ensureChildrenInvariant(group) {
+    if (!group.children) group.children = [];
+    const targetLen = group.nodes.length + 1;
+    if (group.children.length < targetLen) {
+      for (let i = group.children.length; i < targetLen; i++)
+        group.children.push(null);
+    } else if (group.children.length > targetLen) {
+      group.children.length = targetLen;
+    }
+    for (let i = 0; i < group.children.length; i++) {
+      const ch = group.children[i];
+      if (ch) {
+        ch.parent = group;
+        ch.idx = i;
+      }
+    }
+  }
+
+  _minKeys() {
+    // max keys = m, then min keys (non-root) = floor((m+1)/2) - 1
+    return Math.floor((this.m + 1) / 2) - 1;
+  }
+
+  _findGroupAndIndex(key) {
+    let group = this.rootGroup;
+    const path = [];
+    while (group) {
+      const foundIdx = group.nodes.findIndex((n) => n.key === key);
+      if (foundIdx !== -1) return { group, idx: foundIdx, path };
+      if (group.isLeaf) return { group, idx: -1, path };
+
+      // decide child index
+      let childIdx = group.nodes.length;
+      for (let i = 0; i < group.nodes.length; i++) {
+        if (key < group.nodes[i].key) {
+          childIdx = i;
+          break;
+        }
+      }
+      path.push({ group, childIdx });
+      group = group.children[childIdx];
+    }
+    return { group: null, idx: -1, path };
+  }
+
+  _getPredecessorLocation(group, keyIdx) {
+    let cur = group.children[keyIdx];
+    while (cur && !cur.isLeaf) {
+      this._ensureChildrenInvariant(cur);
+      cur = cur.children[cur.nodes.length];
+    }
+    if (!cur) return null;
+    return { group: cur, idx: cur.nodes.length - 1 };
+  }
+
+  _getSuccessorLocation(group, keyIdx) {
+    let cur = group.children[keyIdx + 1];
+    while (cur && !cur.isLeaf) {
+      this._ensureChildrenInvariant(cur);
+      cur = cur.children[0];
+    }
+    if (!cur) return null;
+    return { group: cur, idx: 0 };
+  }
+
+  _borrowFromLeft(parent, childIdx) {
+    const child = parent.children[childIdx];
+    const left = parent.children[childIdx - 1];
+    if (!left || left.nodes.length <= this._minKeys()) return false;
+
+    // bring down parent's separator, bring up left's last key
+    child.nodes.unshift(parent.nodes[childIdx - 1]);
+    parent.nodes[childIdx - 1] = left.nodes.pop();
+
+    if (!child.isLeaf) {
+      this._ensureChildrenInvariant(left);
+      this._ensureChildrenInvariant(child);
+      const moved = left.children.pop();
+      child.children.unshift(moved ?? null);
+      this._ensureChildrenInvariant(child);
+    }
+
+    this._ensureChildrenInvariant(left);
+    this._ensureChildrenInvariant(child);
+    return true;
+  }
+
+  _borrowFromRight(parent, childIdx) {
+    const child = parent.children[childIdx];
+    const right = parent.children[childIdx + 1];
+    if (!right || right.nodes.length <= this._minKeys()) return false;
+
+    // bring down parent's separator, bring up right's first key
+    child.nodes.push(parent.nodes[childIdx]);
+    parent.nodes[childIdx] = right.nodes.shift();
+
+    if (!child.isLeaf) {
+      this._ensureChildrenInvariant(right);
+      this._ensureChildrenInvariant(child);
+      const moved = right.children.shift();
+      child.children.push(moved ?? null);
+      this._ensureChildrenInvariant(child);
+    }
+
+    this._ensureChildrenInvariant(right);
+    this._ensureChildrenInvariant(child);
+    return true;
+  }
+
+  _mergeWithLeft(parent, childIdx) {
+    // merge left sibling + parent key + child -> left sibling keeps result
+    const child = parent.children[childIdx];
+    const left = parent.children[childIdx - 1];
+    const sepIdx = childIdx - 1;
+
+    left.nodes.push(parent.nodes[sepIdx]);
+    for (let i = 0; i < child.nodes.length; i++)
+      left.nodes.push(child.nodes[i]);
+
+    if (!left.isLeaf) {
+      this._ensureChildrenInvariant(left);
+      this._ensureChildrenInvariant(child);
+      for (let i = 0; i < child.children.length; i++) {
+        const ch = child.children[i] ?? null;
+        left.children.push(ch);
+      }
+      this._ensureChildrenInvariant(left);
+    }
+
+    // remove parent sep key and child pointer
+    parent.nodes.splice(sepIdx, 1);
+    parent.children.splice(childIdx, 1);
+
+    this._ensureChildrenInvariant(parent);
+    this._ensureChildrenInvariant(left);
+
+    return left;
+  }
+
+  _mergeWithRight(parent, childIdx) {
+    // merge child + parent key + right sibling -> child keeps result
+    const child = parent.children[childIdx];
+    const right = parent.children[childIdx + 1];
+    const sepIdx = childIdx;
+
+    child.nodes.push(parent.nodes[sepIdx]);
+    for (let i = 0; i < right.nodes.length; i++)
+      child.nodes.push(right.nodes[i]);
+
+    if (!child.isLeaf) {
+      this._ensureChildrenInvariant(child);
+      this._ensureChildrenInvariant(right);
+      for (let i = 0; i < right.children.length; i++) {
+        const ch = right.children[i] ?? null;
+        child.children.push(ch);
+      }
+      this._ensureChildrenInvariant(child);
+    }
+
+    // remove parent sep key and right pointer
+    parent.nodes.splice(sepIdx, 1);
+    parent.children.splice(childIdx + 1, 1);
+
+    this._ensureChildrenInvariant(parent);
+    this._ensureChildrenInvariant(child);
+
+    return child;
+  }
+
+  _fixUnderflow(group) {
+    const minKeys = this._minKeys();
+
+    while (group && group !== this.rootGroup && group.nodes.length < minKeys) {
+      const parent = group.parent;
+      if (!parent) break;
+
+      // get index of group in parent
+      let idxInParent = parent.children.indexOf(group);
+      if (idxInParent === -1 && typeof group.idx === "number")
+        idxInParent = group.idx;
+
+      // try borrow from left
+      if (idxInParent > 0 && this._borrowFromLeft(parent, idxInParent)) {
+        return;
+      }
+      // try borrow from right
+      if (
+        idxInParent < parent.nodes.length &&
+        this._borrowFromRight(parent, idxInParent)
+      ) {
+        return;
+      }
+
+      // merge
+      if (idxInParent > 0) {
+        group = this._mergeWithLeft(parent, idxInParent);
+      } else {
+        group = this._mergeWithRight(parent, idxInParent);
+      }
+
+      // parent might underflow, continue loop with parent
+      if (group.parent && group.parent.nodes.length === 0) {
+        // shrink root if needed
+        if (group.parent === this.rootGroup) {
+          // new root is the only child remaining in parent
+          const newRoot = group;
+          newRoot.parent = null;
+          newRoot.idx = null;
+          this.rootGroup = newRoot;
+          break;
+        }
+      }
+      group = group.parent; // proceed upwards
+    }
+  }
+
+  deleteByKey(key) {
+    if (!this.rootGroup) return false;
+
+    const found = this._findGroupAndIndex(key);
+    if (!found.group || found.idx === -1) return false;
+
+    let targetGroup = found.group;
+    let targetIdx = found.idx;
+
+    if (!targetGroup.isLeaf) {
+      // replace with predecessor (or successor if predecessor missing)
+      let loc = this._getPredecessorLocation(targetGroup, targetIdx);
+      if (!loc) loc = this._getSuccessorLocation(targetGroup, targetIdx);
+      if (!loc) return false; // should not happen unless structure broken
+
+      // swap key objects
+      const temp = targetGroup.nodes[targetIdx];
+      targetGroup.nodes[targetIdx] = loc.group.nodes[loc.idx];
+      loc.group.nodes[loc.idx] = temp;
+
+      // now delete from leaf location
+      targetGroup = loc.group;
+      targetIdx = loc.idx;
+    }
+
+    // remove from leaf
+    targetGroup.nodes.splice(targetIdx, 1);
+    this._ensureChildrenInvariant(targetGroup);
+
+    // fix underflow from targetGroup upwards
+    if (targetGroup !== this.rootGroup) this._fixUnderflow(targetGroup);
+
+    // shrink root if empty
+    if (this.rootGroup && this.rootGroup.nodes.length === 0) {
+      if (this.rootGroup.isLeaf) {
+        this.rootGroup = null;
+      } else {
+        this._ensureChildrenInvariant(this.rootGroup);
+        // choose first non-null child as new root
+        let newRoot = null;
+        for (let i = 0; i < this.rootGroup.children.length; i++) {
+          if (this.rootGroup.children[i]) {
+            newRoot = this.rootGroup.children[i];
+            break;
+          }
+        }
+        if (newRoot) {
+          newRoot.parent = null;
+          newRoot.idx = null;
+          this.rootGroup = newRoot;
+        } else {
+          this.rootGroup = null;
+        }
+      }
+    }
+
+    return true;
+  }
   insert(key, data) {
     if (!this.rootGroup) {
       const node = new BTreeNode({ key, data });
