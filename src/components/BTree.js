@@ -206,4 +206,169 @@ class BTree {
     }
     return null;
   }
+
+  traverse(orderWay, cb) {
+    const root = this.rootGroup || this.root || null;
+    if (!root) return [];
+    const result = [];
+
+    // 재귀호출 방식 대신 반복문을 통해 구현. 필요 시 stack, queue등의 자료구조를 추가로 사용 가능.
+    // pre-order, in-order (asc), in-order (desc), post-order 네가지 구현.
+    // ../BSTree.js의 traverse() 참고.
+    // visit하는 노드마다 cb를 호출.
+
+    switch (orderWay) {
+      case "pre": {
+        // 노드(그룹)의 키들을 먼저 방문 후, 자식들을 좌->우 순서로 방문
+        const stack = [root];
+        while (stack.length) {
+          const group = stack.pop();
+          if (!group) continue;
+
+          for (let i = 0; i < group.nodes.length; i++) {
+            const node = group.nodes[i];
+            if (cb) cb(node);
+            result.push(node.key);
+          }
+
+          // 자식들을 역순으로 push해서 좌측 자식이 먼저 pop되도록
+          const childrenLength = group.children?.length ?? 0;
+          for (let i = childrenLength - 1; i >= 0; i--) {
+            const child = group.children[i];
+            if (child) stack.push(child);
+          }
+        }
+        return result;
+      }
+      case "in": {
+        // 중위 순회(오름차순): child[0] -> key[0] -> child[1] -> key[1] ... -> child[n]
+        const stack = [];
+        let current = root;
+        let i = 0; // 현재 그룹에서 다음으로 처리할 child index
+
+        while (true) {
+          if (current) {
+            // 내부노드면 왼쪽으로 계속 내려감 (child[i])
+            if (!current.isLeaf) {
+              stack.push({ group: current, i });
+              const nextChild = current.children?.[i] ?? null;
+              current = nextChild;
+              i = 0;
+              continue;
+            }
+
+            // 리프 그룹이면 남은 키들을 순서대로 방문
+            for (let k = i; k < current.nodes.length; k++) {
+              const node = current.nodes[k];
+              if (cb) cb(node);
+              result.push(node.key);
+            }
+            current = null; // 상위로 올라감
+            continue;
+          }
+
+          if (!stack.length) break;
+          const { group, i: ci } = stack.pop();
+
+          // child[ci] 처리 후 돌아왔으니, key[ci] 방문 (있다면), 다음 child[ci+1]로
+          if (ci < group.nodes.length) {
+            const node = group.nodes[ci];
+            if (cb) cb(node);
+            result.push(node.key);
+
+            current = group.children?.[ci + 1] ?? null;
+            i = 0;
+            continue;
+          }
+
+          // 모든 키/자식 처리가 끝났으면 상위로 계속 진행
+          current = null;
+        }
+        return result;
+      }
+      case "out": {
+        // 역중위 순회(내림차순): child[n] -> key[n-1] -> child[n-1] ... -> key[0] -> child[0]
+        const stack = [];
+        let current = root;
+        let i = 0;
+
+        while (true) {
+          if (current) {
+            const rightmostChildIndex = current.nodes.length; // child[n]
+            if (!current.isLeaf) {
+              // 우측으로 계속 내려감 (child[n]부터 시작)
+              i = rightmostChildIndex;
+              stack.push({ group: current, i });
+              const nextChild = current.children?.[i] ?? null;
+              current = nextChild;
+              i = 0;
+              continue;
+            }
+
+            // 리프 그룹: 키들을 역순으로 방문
+            for (let k = current.nodes.length - 1; k >= 0; k--) {
+              const node = current.nodes[k];
+              if (cb) cb(node);
+              result.push(node.key);
+            }
+            current = null;
+            continue;
+          }
+
+          if (!stack.length) break;
+          const { group, i: ci } = stack.pop();
+
+          // child[ci]를 마치고 올라왔음. ci>0이면 key[ci-1] 방문 후 child[ci-1]로 진행
+          if (ci > 0) {
+            const node = group.nodes[ci - 1];
+            if (cb) cb(node);
+            result.push(node.key);
+
+            current = group.children?.[ci - 1] ?? null;
+            i = 0;
+            continue;
+          }
+
+          current = null;
+        }
+        return result;
+      }
+      case "post": {
+        // 후위 순회: 모든 자식 방문 후, 그룹의 키들을 방문
+        const stack = [{ group: root, visited: false }];
+        while (stack.length) {
+          const frame = stack.pop();
+          const group = frame.group;
+          if (!group) continue;
+
+          if (!frame.visited) {
+            // 자식들을 먼저 처리하도록 자기 자신을 visited:true로 넣고, 자식들을 역순으로 push
+            stack.push({ group, visited: true });
+            const childrenLength = group.children?.length ?? 0;
+            for (let i = childrenLength - 1; i >= 0; i--) {
+              const child = group.children[i];
+              if (child) stack.push({ group: child, visited: false });
+            }
+            continue;
+          }
+
+          // 모든 자식 처리 후 키 방문
+          for (let i = 0; i < group.nodes.length; i++) {
+            const node = group.nodes[i];
+            if (cb) cb(node);
+            result.push(node.key);
+          }
+        }
+        return result;
+      }
+      default:
+        return [];
+    }
+  }
 }
+
+module.exports = {
+  BTree,
+  BTreeNode,
+  BTreeNodeGroup,
+};
