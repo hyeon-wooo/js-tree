@@ -1,3 +1,7 @@
+const { execSync, spawnSync } = require("child_process");
+
+const fs = require("fs");
+
 class BTreeNode {
   key;
   data;
@@ -91,6 +95,10 @@ class BTreeNodeGroup {
 
   setChild(idx, child) {
     this.children[idx] = child;
+    if (child) {
+      child.parent = this;
+      child.idx = idx;
+    }
   }
 }
 
@@ -110,7 +118,7 @@ class BTree {
       this.rootGroup = new BTreeNodeGroup({
         m: this.m,
         nodes: [node],
-        children: [],
+        children: Array.from({ length: this.m + 1 }, () => null),
         parent: null,
         isLeaf: true,
       });
@@ -130,79 +138,97 @@ class BTree {
     }
 
     // leaf node group 안에 삽입
-
     // 일단 넣고
     const idx = leafNodeGroup.nodes.findIndex((n) => n.key > key);
     if (idx !== -1)
       leafNodeGroup.nodes.splice(idx, 0, new BTreeNode({ key, data }));
     else leafNodeGroup.nodes.push(new BTreeNode({ key, data }));
+    if (leafNodeGroup.nodes.length <= this.m) return true;
 
-    if (leafNodeGroup.nodes.length < this.m + 1) return true;
-
-    // 넘쳤으면 분할
-    /**
-     * [분할 과정]
-     * 1. leaf node group에서 중앙값 찾기
-     * 2. 중앙값을 parent로 옮김
-     * 3. 중앙값 오른쪽 노드들을 새로운 leaf node group으로 옮김
-     * 4. 중앙값 왼쪽 노드들을 기존 leaf node group으로 옮김
-     */
-
+    // 넘쳤으면 상위로 전파 분할
     let childNodeGroup = leafNodeGroup;
-    while (true) {
-      const { key: middleKey, index: middleIndex } =
-        childNodeGroup.findMidian();
+    while (childNodeGroup && childNodeGroup.nodes.length > this.m) {
+      const { index: middleIndex } = childNodeGroup.findMidian();
       const midianNode = childNodeGroup.nodes[middleIndex];
 
-      let parentGroup =
-        childNodeGroup.parent ||
-        new BTreeNodeGroup({
+      // 부모 결정
+      let parentGroup = childNodeGroup.parent;
+      if (!parentGroup) {
+        parentGroup = new BTreeNodeGroup({
           m: this.m,
           nodes: [],
-          children: [],
+          children: Array.from({ length: this.m + 1 }, () => null),
           parent: null,
           isLeaf: false,
         });
-      // 자식과 부모의 연결을 먼저 끊고
-      if (childNodeGroup.parent)
-        parentGroup.children[childNodeGroup.idx] = null;
-      else this.rootGroup = parentGroup;
-      // 부모에 node를 새로 삽입: 삽입된 idx를 반환
-      const midianNodeIdx = parentGroup.insertNode(midianNode);
+        this.rootGroup = parentGroup;
+      }
 
+      // 부모에 중간 키 삽입 (children alignment는 insertNode가 처리)
+      const midIdxInParent = parentGroup.insertNode(midianNode);
+
+      // 왼/오 분할 노드 및 자식 분배
       const leftNodes = childNodeGroup.nodes.slice(0, middleIndex);
       const rightNodes = childNodeGroup.nodes.slice(middleIndex + 1);
-      if (leftNodes.length > 0) {
-        const leftNodeGroup = new BTreeNodeGroup({
-          m: this.m,
-          nodes: leftNodes,
-          children: [],
-          parent: childNodeGroup.parent,
-          isLeaf: true,
-        });
-        parentGroup.setChild(midianNodeIdx, leftNodeGroup);
-      }
-      if (rightNodes.length > 0) {
-        const rightNodeGroup = new BTreeNodeGroup({
-          m: this.m,
-          nodes: rightNodes,
-          children: [],
-          parent: childNodeGroup.parent,
-          isLeaf: true,
-        });
-        parentGroup.setChild(midianNodeIdx + 1, rightNodeGroup);
+
+      const leftChildren = childNodeGroup.isLeaf
+        ? Array.from({ length: this.m + 1 }, () => null)
+        : childNodeGroup.children.slice(0, middleIndex + 1);
+      const rightChildren = childNodeGroup.isLeaf
+        ? Array.from({ length: this.m + 1 }, () => null)
+        : childNodeGroup.children.slice(middleIndex + 1);
+
+      const leftGroup = new BTreeNodeGroup({
+        m: this.m,
+        nodes: leftNodes,
+        children: leftChildren,
+        parent: parentGroup,
+        isLeaf: childNodeGroup.isLeaf,
+      });
+      const rightGroup = new BTreeNodeGroup({
+        m: this.m,
+        nodes: rightNodes,
+        children: rightChildren,
+        parent: parentGroup,
+        isLeaf: childNodeGroup.isLeaf,
+      });
+
+      // 자식들의 parent/idx 재설정 (내부노드 분할 케이스)
+      if (!childNodeGroup.isLeaf) {
+        for (let i = 0; i < leftGroup.children.length; i++) {
+          const ch = leftGroup.children[i];
+          if (ch) {
+            ch.parent = leftGroup;
+            ch.idx = i;
+          }
+        }
+        for (let i = 0; i < rightGroup.children.length; i++) {
+          const ch = rightGroup.children[i];
+          if (ch) {
+            ch.parent = rightGroup;
+            ch.idx = i;
+          }
+        }
       }
 
-      if (parentGroup.nodes.length < this.m + 1) return true;
+      // 부모에 좌/우 자식 연결
+      parentGroup.setChild(midIdxInParent, leftGroup);
+      parentGroup.setChild(midIdxInParent + 1, rightGroup);
+
+      // 다음 반복은 부모 검사
+      childNodeGroup = parentGroup;
     }
+
+    return true;
   }
 
   search(key) {
-    if (!this.root) return null;
-    let currentNode = this.root;
-    while (currentNode) {
-      if (currentNode.key === key) return currentNode;
-      currentNode = currentNode.children[currentNode.key < key ? 1 : 0];
+    if (!this.rootGroup) return null;
+    let group = this.rootGroup;
+    while (group) {
+      const { node, nextNodeGroup } = group.search(key);
+      if (node || group.isLeaf) return node ?? null;
+      group = nextNodeGroup;
     }
     return null;
   }
@@ -363,6 +389,155 @@ class BTree {
       }
       default:
         return [];
+    }
+  }
+
+  toDot(options) {
+    const { dir = process.cwd(), fileName = "tree" } = options;
+    const dotFilePath = `${dir}/${fileName}.dot`;
+
+    const root = this.rootGroup || this.root || null;
+    if (!root) {
+      const result = 'digraph G {\n  label="B-Tree (empty)";\n}';
+      fs.writeFileSync(dotFilePath, result);
+      return {
+        dotFileContent: result,
+        dotFilePath,
+      };
+    }
+
+    const lines = [];
+    lines.push("digraph G {");
+    lines.push("  graph [rankdir=TB];");
+    lines.push("  node [shape=record, fontsize=12];");
+
+    let nodeId = 0;
+    const idMap = new Map();
+
+    function groupLabel(group) {
+      // record 노드: <c0>|k0|<c1>|k1|...|<cN>
+      const parts = [];
+      const keys = group.nodes.map((n) => n.key);
+      for (let i = 0; i < keys.length; i++) {
+        parts.push(`<c${i}>`);
+        parts.push(`${keys[i]}`);
+      }
+      parts.push(`<c${keys.length}>`);
+      return parts.join("|");
+    }
+
+    // DFS로 노드와 간선 생성
+    const stack = [root];
+    while (stack.length) {
+      const group = stack.pop();
+      if (!idMap.has(group)) idMap.set(group, `n${nodeId++}`);
+      const id = idMap.get(group);
+
+      const label = groupLabel(group);
+      lines.push(`  ${id} [label="${label}"];`);
+
+      const childrenLength = group.children?.length ?? 0;
+      for (let i = 0; i < childrenLength; i++) {
+        const child = group.children[i];
+        if (child) {
+          if (!idMap.has(child)) idMap.set(child, `n${nodeId++}`);
+          const cid = idMap.get(child);
+          lines.push(`  ${id}:c${i} -> ${cid};`);
+          stack.push(child);
+        }
+      }
+    }
+
+    lines.push("}");
+    const result = lines.join("\n");
+    fs.writeFileSync(dotFilePath, result);
+    return {
+      dotFileContent: result,
+      dotFilePath,
+    };
+  }
+
+  // Graphviz DOT 포맷으로 렌더링
+  toPng(options) {
+    const { dir = process.cwd(), fileName = "tree" } = options;
+
+    const dot = this.toDot({ dir, fileName });
+    const pngFilePath = `${dir}/${fileName}.png`;
+
+    switch (process.platform) {
+      case "darwin":
+        const check = spawnSync("dot", ["--version"], { encoding: "utf8" });
+        if (check.error)
+          throw new Error(
+            "Graphviz(dot)가 설치되어 있지 않습니다. 설치: brew install graphviz"
+          );
+        else if (check.status !== 0)
+          throw new Error(
+            "dot 명령 실행에 실패했습니다. 설치 또는 경로를 확인하세요: brew install graphviz"
+          );
+
+        execSync(`dot -Tpng ${dot.dotFilePath} -o ${pngFilePath}`);
+        fs.unlinkSync(dot.dotFilePath);
+        return { pngFilePath };
+      case "win32":
+        // 1) PATH 내 dot 확인
+        {
+          const chk = spawnSync("dot", ["--version"], { encoding: "utf8" });
+          if (chk.status === 0 && !chk.error) {
+            execSync(`dot -Tpng ${dot.dotFilePath} -o ${pngFilePath}`);
+            fs.unlinkSync(dot.dotFilePath);
+            return { pngFilePath };
+          }
+        }
+
+        // 2) 일반 설치 경로/Chocolatey 경로 탐색
+        const candidates = [];
+        if (process.env["ProgramFiles"]) {
+          candidates.push(
+            `${process.env["ProgramFiles"]}\\Graphviz\\bin\\dot.exe`
+          );
+        }
+        if (process.env["ProgramFiles(x86)"]) {
+          candidates.push(
+            `${process.env["ProgramFiles(x86)"]}\\Graphviz\\bin\\dot.exe`
+          );
+        }
+        // Chocolatey 기본 경로
+        candidates.push(`C:\\ProgramData\\chocolatey\\bin\\dot.exe`);
+
+        let resolvedDot = null;
+        for (const p of candidates) {
+          try {
+            if (fs.existsSync(p)) {
+              resolvedDot = p;
+              break;
+            }
+          } catch (_) {}
+        }
+
+        if (resolvedDot) {
+          execSync(
+            `"${resolvedDot}" -Tpng ${dot.dotFilePath} -o ${pngFilePath}`
+          );
+          fs.unlinkSync(dot.dotFilePath);
+          return { pngFilePath };
+        }
+
+        throw new Error(
+          "Windows에서 Graphviz(dot)를 찾지 못했습니다. 설치: winget install Graphviz.Graphviz 또는 choco install graphviz 후 새 터미널에서 다시 시도하세요."
+        );
+      case "linux": {
+        const chk = spawnSync("dot", ["--version"], { encoding: "utf8" });
+        if (chk.error || chk.status !== 0)
+          throw new Error(
+            "Graphviz(dot)가 설치되어 있지 않습니다. 설치 예: sudo apt-get install graphviz 또는 sudo dnf install graphviz"
+          );
+        execSync(`dot -Tpng ${dot.dotFilePath} -o ${pngFilePath}`);
+        fs.unlinkSync(dot.dotFilePath);
+        return { pngFilePath };
+      }
+      default:
+        throw new Error(`Unsupported platform: ${process.platform}`);
     }
   }
 }
